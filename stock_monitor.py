@@ -8,7 +8,7 @@ import urllib.error
 PAGE_URL = "https://www.ebgames.com.au/featured/playstation-5"
 TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
-
+ 
 def send_telegram(message):
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     data = urllib.parse.urlencode({
@@ -20,12 +20,29 @@ def send_telegram(message):
     with urllib.request.urlopen(request, timeout=20) as response:
         if response.status != 200:
             raise RuntimeError("Telegram alert failed")
+ 
 
 def main():
     request = urllib.request.Request(
         PAGE_URL,
-        headers={"User-Agent": "Mozilla/5.0"}
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) "
+                "AppleWebKit/605.1.15 (KHTML, like Gecko) "
+                "Version/17.0 Mobile/15E148 Safari/604.1"
+            ),
+            "Accept": (
+                "text/html,application/xhtml+xml,"
+                "application/xml;q=0.9,*/*;q=0.8"
+            ),
+            "Accept-Language": "en-AU,en;q=0.9"
+        }
     )
+
+    
+        
+    
+    
 
     with urllib.request.urlopen(request, timeout=30) as response:
         html = response.read().decode("utf-8", errors="replace")
