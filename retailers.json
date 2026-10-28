@@ -1,5 +1,3 @@
 [
-  {"name": "JB Hi-Fi", "url": "https://www.jbhifi.com.au/products/ps5-playstation-5-pro-console"},
-  {"name": "Big W", "url": "https://www.bigw.com.au/product/playstation-5-pro-console/p/104141", "out_of_stock_text": ["temporarily out of stock or discontinued"], "in_stock_if_absent": true},
-  {"name": "Harvey Norman", "url": "https://www.harveynorman.com.au/ps5-playstation-5-pro-console.html", "out_of_stock_text": ["temporarily out of stock"]}
+  {"name": "JB Hi-Fi", "url": "https://www.jbhifi.com.au/products/ps5-playstation-5-pro-console"}
 ]
