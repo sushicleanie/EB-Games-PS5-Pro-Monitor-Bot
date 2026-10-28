@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""PS5 Pro stock monitor (loose, any-sign-of-stock version).
+"""PS5 Pro stock monitor (loose, any-sign-of-stock version, v2.1).
 
 - Never tries to get around blocks. 401/403/429, bot-check pages, or
   robots.txt restrictions => BLOCKED (reported, never guessed).
+- Bot-check wording is only looked for in the visible page text, and only
+  when no product data was found (hidden scripts mentioning captcha are ignored).
 - STRONG signal: schema.org JSON-LD says InStock for a new PS5 Pro console.
 - WEAK signal (only when there is no JSON-LD stock data): visible page text
   has in-stock wording or a cart button AND no sold-out / notify-me wording.
-- JSON-LD saying OutOfStock overrides cart-button text (those buttons often
-  stay on the page but don't work).
+- JSON-LD saying OutOfStock overrides cart-button text.
 - Secrets come only from environment variables.
 """
 import html
@@ -23,7 +24,7 @@ import requests
 
 CONFIG_FILE = "retailers.json"
 STATE_FILE = "state.json"
-USER_AGENT = "PS5ProStockMonitor/2.0 (personal hobby monitor)"
+USER_AGENT = "PS5ProStockMonitor/2.1 (personal hobby monitor)"
 HEADERS = {"User-Agent": USER_AGENT, "Accept": "text/html,application/xhtml+xml"}
 TIMEOUT = 30
 UNKNOWN_ALERT_AFTER = 24  # ~2 hours at 5-minute checks, then one heads-up
@@ -245,16 +246,22 @@ def check_retailer(r):
     code = resp.status_code
     if code in (401, 403, 429):
         return {"status": BLOCKED, "detail": f"HTTP {code}"}
-    low = resp.text.lower()
-    if any(m in low for m in BLOCK_MARKERS):
-        return {"status": BLOCKED, "detail": f"HTTP {code}, bot-check page"}
     if code != 200:
         return {"status": UNKNOWN, "detail": f"HTTP {code}"}
 
     text = visible_text(resp.text)
+    ld = parse_ld(resp.text)
+
+    # Bot-check wording counts only if the VISIBLE text has it and no
+    # product data was found. Hidden scripts mentioning captcha are ignored.
+    if ld is None:
+        hit = [m for m in BLOCK_MARKERS if m in text]
+        if hit:
+            return {"status": BLOCKED,
+                    "detail": f"HTTP {code}, bot-check wording on page: '{hit[0]}'"}
+
     negatives = [p for p in NEGATIVE_PHRASES if p in text]
     positives = [p for p in POSITIVE_PHRASES if p in text]
-    ld = parse_ld(resp.text)
 
     if ld and ld["status"] == IN_STOCK:
         signals = [f"page data says {ld['raw']}"]
