@@ -9,7 +9,7 @@
     "alerted": false,
     "blocked_notified": false,
     "status": "UNKNOWN",
-    "unknown_streak": 3
+    "unknown_streak": 4
   },
   "Gamesmen": {
     "alerted": false,
@@ -21,7 +21,7 @@
     "alerted": false,
     "blocked_notified": false,
     "status": "UNKNOWN",
-    "unknown_streak": 1
+    "unknown_streak": 2
   },
   "JB Hi-Fi": {
     "alerted": false,
