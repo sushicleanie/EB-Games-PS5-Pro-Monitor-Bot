@@ -10,7 +10,7 @@
     "blocked_notified": false,
     "not_in_stock_streak": 2,
     "status": "UNKNOWN",
-    "unknown_streak": 8
+    "unknown_streak": 9
   },
   "Gamesmen": {
     "alerted": false,
@@ -23,12 +23,12 @@
     "blocked_notified": false,
     "not_in_stock_streak": 2,
     "status": "UNKNOWN",
-    "unknown_streak": 6
+    "unknown_streak": 7
   },
   "JB Hi-Fi": {
     "alerted": false,
     "blocked_notified": false,
-    "not_in_stock_streak": 1,
+    "not_in_stock_streak": 2,
     "status": "OUT_OF_STOCK",
     "unknown_streak": 0
   },
