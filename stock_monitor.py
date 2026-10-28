@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
-"""PS5 Pro stock monitor (loose, any-sign-of-stock version, v2.1).
+"""PS5 Pro stock monitor (loose, any-sign-of-stock version, v2.2).
 
 - Never tries to get around blocks. 401/403/429, bot-check pages, or
   robots.txt restrictions => BLOCKED (reported, never guessed).
 - Bot-check wording is only looked for in the visible page text, and only
-  when no product data was found (hidden scripts mentioning captcha are ignored).
-- STRONG signal: schema.org JSON-LD says InStock for a new PS5 Pro console.
-- WEAK signal (only when there is no JSON-LD stock data): visible page text
-  has in-stock wording or a cart button AND no sold-out / notify-me wording.
-- JSON-LD saying OutOfStock overrides cart-button text.
+  when no product data was found.
+- Per-retailer rules in retailers.json:
+    out_of_stock_text: phrases that mean sold out (visible text wins over
+      everything; page code is a fallback when there is no product data).
+    in_stock_if_absent: true => in stock only if the page loaded, "PS5 Pro"
+      is in the visible text, and the out-of-stock phrase is absent.
+- STRONG signal: schema.org JSON-LD says InStock.
+- WEAK signal: no JSON-LD stock data, in-stock wording or cart button seen,
+  and no sold-out wording.
 - Secrets come only from environment variables.
 """
 import html
@@ -24,9 +28,10 @@ import requests
 
 CONFIG_FILE = "retailers.json"
 STATE_FILE = "state.json"
-USER_AGENT = "PS5ProStockMonitor/2.1 (personal hobby monitor)"
+USER_AGENT = "PS5ProStockMonitor/2.2 (personal hobby monitor)"
 HEADERS = {"User-Agent": USER_AGENT, "Accept": "text/html,application/xhtml+xml"}
 TIMEOUT = 30
+ROBOTS_TIMEOUT = 10
 UNKNOWN_ALERT_AFTER = 24  # ~2 hours at 5-minute checks, then one heads-up
 RESET_AFTER = 2           # non-in-stock checks in a row before alerts re-arm
 
@@ -137,7 +142,7 @@ def robots_allows(url):
     p = urlparse(url)
     try:
         r = requests.get(f"{p.scheme}://{p.netloc}/robots.txt",
-                         headers=HEADERS, timeout=TIMEOUT)
+                         headers=HEADERS, timeout=ROBOTS_TIMEOUT)
     except requests.RequestException:
         return True
     if r.status_code != 200:
@@ -250,10 +255,9 @@ def check_retailer(r):
         return {"status": UNKNOWN, "detail": f"HTTP {code}"}
 
     text = visible_text(resp.text)
+    raw_low = resp.text.lower()
     ld = parse_ld(resp.text)
 
-    # Bot-check wording counts only if the VISIBLE text has it and no
-    # product data was found. Hidden scripts mentioning captcha are ignored.
     if ld is None:
         hit = [m for m in BLOCK_MARKERS if m in text]
         if hit:
@@ -262,7 +266,16 @@ def check_retailer(r):
 
     negatives = [p for p in NEGATIVE_PHRASES if p in text]
     positives = [p for p in POSITIVE_PHRASES if p in text]
+    out_text = [str(p).lower() for p in r.get("out_of_stock_text", [])]
+    vis_hit = [p for p in out_text if p in text]
+    raw_hit = [p for p in out_text if p in raw_low]
 
+    # 1. Retailer's own out-of-stock wording on the visible page wins.
+    if vis_hit:
+        return {"status": OUT_OF_STOCK,
+                "detail": f"page says '{vis_hit[0]}'"}
+
+    # 2. Product data says in stock.
     if ld and ld["status"] == IN_STOCK:
         signals = [f"page data says {ld['raw']}"]
         if positives:
@@ -271,9 +284,32 @@ def check_retailer(r):
         return {"status": IN_STOCK, "price": ld["price"], "strength": "strong",
                 "signals": signals, "warn": warn,
                 "detail": f"{ld['name']} | STRONG: {'; '.join(signals)} {warn}".strip()}
+
+    # 3. Product data says out of stock.
     if ld and ld["status"] == OUT_OF_STOCK:
         return {"status": OUT_OF_STOCK,
                 "detail": f"{ld['name']} | page data says {ld['raw']}"}
+
+    # 4. No usable product data: out-of-stock phrase found in page code.
+    if raw_hit:
+        return {"status": OUT_OF_STOCK,
+                "detail": f"'{raw_hit[0]}' found in page code (no product data)"}
+
+    # 5. Retailer rule: in stock if its out-of-stock message is absent,
+    #    but only if the page clearly loaded as the PS5 Pro product page.
+    if r.get("in_stock_if_absent"):
+        if not NAME_RE.search(text):
+            return {"status": UNKNOWN,
+                    "detail": f"'PS5 Pro' not found in page text ({len(text)} chars); "
+                              "cannot confirm the page loaded properly. Check the link."}
+        signals = ["retailer's out-of-stock message is absent"]
+        if positives:
+            signals.append(f"page text: '{positives[0]}'")
+        return {"status": IN_STOCK, "price": None, "strength": "weak",
+                "signals": signals, "warn": "",
+                "detail": f"WEAK (message absent): {'; '.join(signals)}"}
+
+    # 6. Generic text-only fallback.
     if ld is None or ld["status"] == UNKNOWN:
         if positives and not negatives:
             signals = [f"page text: '{positives[0]}'"]
@@ -284,7 +320,7 @@ def check_retailer(r):
             return {"status": OUT_OF_STOCK,
                     "detail": f"page text says '{negatives[0]}'"}
         return {"status": UNKNOWN,
-                "detail": "No stock data or stock wording found on page"}
+                "detail": f"No stock data or wording found (page text {len(text)} chars)"}
     return {"status": UNKNOWN, "detail": "Unclear"}
 
 
@@ -323,7 +359,7 @@ def main():
             s["not_in_stock_streak"] = 0
             s["blocked_notified"] = False
             if not s["alerted"]:
-                kind = "STRONG signal" if res["strength"] == "strong" else "WEAK signal (text only)"
+                kind = "STRONG signal" if res["strength"] == "strong" else "WEAK signal"
                 msg = f"🟢 PS5 Pro may be IN STOCK at {name} ({kind})\n"
                 if res.get("price"):
                     msg += f"Price: {res['price']}\n"
