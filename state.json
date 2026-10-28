@@ -8,8 +8,9 @@
   "Big W": {
     "alerted": false,
     "blocked_notified": false,
+    "not_in_stock_streak": 1,
     "status": "UNKNOWN",
-    "unknown_streak": 6
+    "unknown_streak": 7
   },
   "Gamesmen": {
     "alerted": false,
@@ -20,12 +21,14 @@
   "Harvey Norman": {
     "alerted": false,
     "blocked_notified": false,
+    "not_in_stock_streak": 1,
     "status": "UNKNOWN",
-    "unknown_streak": 4
+    "unknown_streak": 5
   },
   "JB Hi-Fi": {
     "alerted": false,
-    "blocked_notified": false,
+    "blocked_notified": true,
+    "not_in_stock_streak": 0,
     "status": "OUT_OF_STOCK",
     "unknown_streak": 0
   },
