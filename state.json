@@ -9,7 +9,19 @@
     "alerted": false,
     "blocked_notified": false,
     "status": "UNKNOWN",
-    "unknown_streak": 2
+    "unknown_streak": 3
+  },
+  "Gamesmen": {
+    "alerted": false,
+    "blocked_notified": true,
+    "status": "BLOCKED",
+    "unknown_streak": 0
+  },
+  "Harvey Norman": {
+    "alerted": false,
+    "blocked_notified": false,
+    "status": "UNKNOWN",
+    "unknown_streak": 1
   },
   "JB Hi-Fi": {
     "alerted": false,
