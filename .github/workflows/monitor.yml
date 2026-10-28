@@ -2,8 +2,8 @@ name: PS5 Pro Stock Monitor
 
 on:
   schedule:
-    - cron: "7,22,37,52 * * * *"
-  workflow_dispatch:
+    
+  workflow- cron: "11,26,41,56 * * * *"_dispatch:
     inputs:
       send_test:
         description: "Only send a Telegram test message"
