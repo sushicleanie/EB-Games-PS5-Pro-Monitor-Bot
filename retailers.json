@@ -1,6 +1,8 @@
 [
-  {"name": "Amazon AU", "url": "PASTE_AMAZON_AU_PS5_PRO_PRODUCT_URL_HERE"},
-  {"name": "Big W", "url": "PASTE_BIG_W_PS5_PRO_PRODUCT_URL_HERE"},
-  {"name": "EB Games", "url": "PASTE_EB_GAMES_PS5_PRO_PRODUCT_URL_HERE"},
-  {"name": "JB Hi-Fi", "url": "PASTE_JB_HI_FI_PS5_PRO_PRODUCT_URL_HERE"}
-]
+  {"name": "Amazon AU", "url": "https://www.amazon.com.au/PlayStation-5-Pro-Console/dp/B0DH4LCQV6/?th=1"},
+  {"name": "Big W", "url": "https://www.bigw.com.au/product/playstation-5-pro-console/p/104141"},
+  
+  {"name": "JB Hi-Fi", "url": "https://www.jbhifi.com.au/products/ps5-playstation-5-pro-console"},
+  
+  {"name": "Telstra",  {"name": "Telstra", "url": "https://www.telstra.com.au/accessories/gaming-consoles/playstation/ps5-pro-console"}
+  [
