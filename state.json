@@ -9,7 +9,7 @@
     "alerted": false,
     "blocked_notified": false,
     "status": "UNKNOWN",
-    "unknown_streak": 4
+    "unknown_streak": 5
   },
   "Gamesmen": {
     "alerted": false,
@@ -21,12 +21,18 @@
     "alerted": false,
     "blocked_notified": false,
     "status": "UNKNOWN",
-    "unknown_streak": 2
+    "unknown_streak": 3
   },
   "JB Hi-Fi": {
     "alerted": false,
     "blocked_notified": false,
     "status": "OUT_OF_STOCK",
+    "unknown_streak": 0
+  },
+  "Target": {
+    "alerted": true,
+    "blocked_notified": false,
+    "status": "IN_STOCK",
     "unknown_streak": 0
   },
   "Telstra": {
