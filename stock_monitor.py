@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""PS5 Pro stock monitor for Australian retailers.
+"""PS5 Pro stock monitor (loose, any-sign-of-stock version).
 
-Rules this script follows:
-- It never tries to get around blocks (no spoofing, no CAPTCHA tricks).
-- 403/429, CAPTCHA pages, or robots.txt restrictions => status BLOCKED.
-- Anything unclear => status UNKNOWN. Never treated as in stock or out of stock.
-- It only alerts "in stock" when the page's own structured data (schema.org
-  JSON-LD) says InStock for a new PS5 Pro console.
+- Never tries to get around blocks. 401/403/429, bot-check pages, or
+  robots.txt restrictions => BLOCKED (reported, never guessed).
+- STRONG signal: schema.org JSON-LD says InStock for a new PS5 Pro console.
+- WEAK signal (only when there is no JSON-LD stock data): visible page text
+  has in-stock wording or a cart button AND no sold-out / notify-me wording.
+- JSON-LD saying OutOfStock overrides cart-button text (those buttons often
+  stay on the page but don't work).
 - Secrets come only from environment variables.
 """
 import html
@@ -22,10 +23,11 @@ import requests
 
 CONFIG_FILE = "retailers.json"
 STATE_FILE = "state.json"
-USER_AGENT = "PS5ProStockMonitor/1.0 (personal low-frequency hobby monitor)"
+USER_AGENT = "PS5ProStockMonitor/2.0 (personal hobby monitor)"
 HEADERS = {"User-Agent": USER_AGENT, "Accept": "text/html,application/xhtml+xml"}
-TIMEOUT = 25
-UNKNOWN_ALERT_AFTER = 8  # consecutive unclear runs (~2 hours) before one heads-up
+TIMEOUT = 30
+UNKNOWN_ALERT_AFTER = 24  # ~2 hours at 5-minute checks, then one heads-up
+RESET_AFTER = 2           # non-in-stock checks in a row before alerts re-arm
 
 IN_STOCK = "IN_STOCK"
 OUT_OF_STOCK = "OUT_OF_STOCK"
@@ -48,10 +50,42 @@ BLOCK_MARKERS = [
     "are you a robot",
     "captcha",
 ]
+NEGATIVE_PHRASES = [
+    "out of stock",
+    "not in stock",
+    "sold out",
+    "currently unavailable",
+    "unavailable online",
+    "not available online",
+    "no longer available",
+    "temporarily out",
+    "back in stock soon",
+    "notify me",
+    "email me when",
+    "waitlist",
+    "coming soon",
+]
+POSITIVE_PHRASES = [
+    "in stock",
+    "available online",
+    "available for delivery",
+    "available now",
+    "add to cart",
+    "add to bag",
+    "add to basket",
+    "add to trolley",
+    "buy now",
+    "click & collect",
+    "click and collect",
+]
 LD_RE = re.compile(
     r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
     re.S | re.I,
 )
+HIDDEN_RE = re.compile(
+    r"<(script|style|noscript|template)\b[^>]*>.*?</\1>", re.S | re.I
+)
+TAG_RE = re.compile(r"<[^>]+>")
 
 
 def log(msg):
@@ -84,7 +118,11 @@ def load_json(path, default):
     try:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
+    except FileNotFoundError:
+        return default
+    except json.JSONDecodeError as e:
+        log(f"ERROR: {path} is not valid JSON: {e.msg} at line {e.lineno}, "
+            f"column {e.colno}.")
         return default
 
 
@@ -134,8 +172,15 @@ def classify_availability(value):
     return UNKNOWN
 
 
-def parse_product(page_html):
-    """Return {'status','detail','price'} or None if no matching product data."""
+def visible_text(page_html):
+    t = HIDDEN_RE.sub(" ", page_html)
+    t = TAG_RE.sub(" ", t)
+    t = html.unescape(t)
+    return re.sub(r"\s+", " ", t).lower()
+
+
+def parse_ld(page_html):
+    """Return dict(status, raw, price, name) from JSON-LD, or None."""
     for block in LD_RE.findall(page_html):
         try:
             data = json.loads(html.unescape(block.strip()))
@@ -148,28 +193,44 @@ def parse_product(page_html):
             if not NAME_RE.search(name):
                 continue
             if ACCESSORY_RE.search(name):
-                return {"status": UNKNOWN,
-                        "detail": f"Page looks like an accessory: {name[:60]}"}
-            statuses, price = [], None
+                return {"status": UNKNOWN, "raw": "accessory page",
+                        "name": name[:50], "price": None}
+            statuses, raws, price = [], [], None
             for off in iter_nodes(node.get("offers", [])):
                 if "availability" not in off:
                     continue
                 cond = str(off.get("itemCondition", ""))
                 if cond and "new" not in cond.lower():
-                    continue  # skip used/refurbished offers
+                    continue
+                raws.append(str(off["availability"]).rsplit("/", 1)[-1])
                 st = classify_availability(off["availability"])
                 statuses.append(st)
                 if st == IN_STOCK and price is None:
                     amount = off.get("price") or off.get("lowPrice")
                     if amount:
                         price = f"{off.get('priceCurrency', 'AUD')} {amount}"
+            raw = ",".join(raws) if raws else "none"
             if IN_STOCK in statuses:
-                return {"status": IN_STOCK, "detail": name[:80], "price": price}
+                return {"status": IN_STOCK, "raw": raw,
+                        "name": name[:50], "price": price}
             if statuses and all(s == OUT_OF_STOCK for s in statuses):
-                return {"status": OUT_OF_STOCK, "detail": name[:80]}
-            return {"status": UNKNOWN,
-                    "detail": "Product found but availability unclear"}
+                return {"status": OUT_OF_STOCK, "raw": raw,
+                        "name": name[:50], "price": None}
+            return {"status": UNKNOWN, "raw": raw,
+                    "name": name[:50], "price": None}
     return None
+
+
+def get_page(url):
+    """One request, with one retry on a network timeout/error."""
+    last = None
+    for attempt in range(2):
+        try:
+            return requests.get(url, headers=HEADERS, timeout=TIMEOUT), None
+        except requests.RequestException as e:
+            last = type(e).__name__
+            time.sleep(2)
+    return None, last
 
 
 def check_retailer(r):
@@ -178,23 +239,46 @@ def check_retailer(r):
         return {"status": NOT_CONFIGURED, "detail": "No URL set in retailers.json"}
     if not robots_allows(url):
         return {"status": BLOCKED, "detail": "robots.txt disallows automated access"}
-    try:
-        resp = requests.get(url, headers=HEADERS, timeout=TIMEOUT)
-    except requests.RequestException as e:
-        return {"status": UNKNOWN, "detail": f"Network error: {type(e).__name__}"}
+    resp, err = get_page(url)
+    if resp is None:
+        return {"status": UNKNOWN, "detail": f"Network error: {err}"}
     code = resp.status_code
     if code in (401, 403, 429):
         return {"status": BLOCKED, "detail": f"HTTP {code}"}
     low = resp.text.lower()
-    if code == 200:
-        result = parse_product(resp.text)
-        if result:
-            return result
     if any(m in low for m in BLOCK_MARKERS):
         return {"status": BLOCKED, "detail": f"HTTP {code}, bot-check page"}
     if code != 200:
         return {"status": UNKNOWN, "detail": f"HTTP {code}"}
-    return {"status": UNKNOWN, "detail": "No machine-readable stock info on page"}
+
+    text = visible_text(resp.text)
+    negatives = [p for p in NEGATIVE_PHRASES if p in text]
+    positives = [p for p in POSITIVE_PHRASES if p in text]
+    ld = parse_ld(resp.text)
+
+    if ld and ld["status"] == IN_STOCK:
+        signals = [f"page data says {ld['raw']}"]
+        if positives:
+            signals.append(f"page text: '{positives[0]}'")
+        warn = f"BUT page text also says '{negatives[0]}'" if negatives else ""
+        return {"status": IN_STOCK, "price": ld["price"], "strength": "strong",
+                "signals": signals, "warn": warn,
+                "detail": f"{ld['name']} | STRONG: {'; '.join(signals)} {warn}".strip()}
+    if ld and ld["status"] == OUT_OF_STOCK:
+        return {"status": OUT_OF_STOCK,
+                "detail": f"{ld['name']} | page data says {ld['raw']}"}
+    if ld is None or ld["status"] == UNKNOWN:
+        if positives and not negatives:
+            signals = [f"page text: '{positives[0]}'"]
+            return {"status": IN_STOCK, "price": None, "strength": "weak",
+                    "signals": signals, "warn": "",
+                    "detail": f"WEAK (text only): {'; '.join(signals)}"}
+        if negatives:
+            return {"status": OUT_OF_STOCK,
+                    "detail": f"page text says '{negatives[0]}'"}
+        return {"status": UNKNOWN,
+                "detail": "No stock data or stock wording found on page"}
+    return {"status": UNKNOWN, "detail": "Unclear"}
 
 
 def main():
@@ -205,44 +289,48 @@ def main():
 
     retailers = load_json(CONFIG_FILE, [])
     if not retailers:
-        log(f"ERROR: {CONFIG_FILE} is missing or empty.")
+        log(f"ERROR: {CONFIG_FILE} is missing, empty or invalid (see message above).")
         return 1
 
     state = load_json(STATE_FILE, {})
     failures = 0
-    log(f"{'Retailer':<14} {'Status':<15} Detail")
+    log(f"{'Retailer':<14} {'Status':<14} Detail")
 
     for i, r in enumerate(retailers):
         if i:
-            time.sleep(3)
+            time.sleep(1)
         name = r["name"]
         url = r.get("url", "")
         res = check_retailer(r)
         status = res["status"]
-        log(f"{name:<14} {status:<15} {res.get('detail', '')}")
+        log(f"{name:<14} {status:<14} {res.get('detail', '')}")
 
         s = state.get(name, {})
         s.setdefault("alerted", False)
         s.setdefault("blocked_notified", False)
         s.setdefault("unknown_streak", 0)
+        s.setdefault("not_in_stock_streak", 0)
 
         if status == IN_STOCK:
             s["unknown_streak"] = 0
+            s["not_in_stock_streak"] = 0
             s["blocked_notified"] = False
             if not s["alerted"]:
-                msg = f"🟢 PS5 Pro IN STOCK at {name}\n"
+                kind = "STRONG signal" if res["strength"] == "strong" else "WEAK signal (text only)"
+                msg = f"🟢 PS5 Pro may be IN STOCK at {name} ({kind})\n"
                 if res.get("price"):
                     msg += f"Price: {res['price']}\n"
-                msg += url
+                msg += url + "\n"
+                msg += "Signals: " + "; ".join(res["signals"]) + "\n"
+                if res.get("warn"):
+                    msg += f"Note: {res['warn']}\n"
+                msg += "Cart buttons can be present when it is really sold out, so check the page."
                 if send_telegram(msg):
                     s["alerted"] = True
                 else:
-                    failures += 1  # will retry next run
-        elif status == OUT_OF_STOCK:
-            s["alerted"] = False
-            s["blocked_notified"] = False
-            s["unknown_streak"] = 0
+                    failures += 1
         elif status == BLOCKED:
+            s["not_in_stock_streak"] = 0
             if not s["blocked_notified"]:
                 msg = (f"⚠️ {name} is blocking automated checks ({res.get('detail')}).\n"
                        "I am NOT treating this as in or out of stock, and I won't "
@@ -251,13 +339,18 @@ def main():
                     s["blocked_notified"] = True
                 else:
                     failures += 1
-        elif status == UNKNOWN:
-            s["unknown_streak"] += 1
-            if s["unknown_streak"] == UNKNOWN_ALERT_AFTER:
-                send_telegram(f"ℹ️ {name}: stock status has been unclear for "
-                              f"{UNKNOWN_ALERT_AFTER} checks in a row "
-                              f"({res.get('detail')}). Not treated as in or out of stock.")
-        s["status"] = status
+        else:  # OUT_OF_STOCK, UNKNOWN, NOT_CONFIGURED
+            s["blocked_notified"] = False
+            s["not_in_stock_streak"] = min(s["not_in_stock_streak"] + 1, RESET_AFTER)
+            if s["not_in_stock_streak"] >= RESET_AFTER:
+                s["alerted"] = False
+            if status == UNKNOWN:
+                s["unknown_streak"] = min(s["unknown_streak"] + 1, UNKNOWN_ALERT_AFTER + 1)
+                if s["unknown_streak"] == UNKNOWN_ALERT_AFTER:
+                    send_telegram(f"ℹ️ {name}: status unclear for {UNKNOWN_ALERT_AFTER} "
+                                  f"checks in a row ({res.get('detail')}). Check manually.")
+            else:
+                s["unknown_streak"] = 0
         state[name] = s
 
     save_state(state)
