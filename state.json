@@ -30,7 +30,7 @@
     "blocked_notified": false,
     "not_in_stock_streak": 2,
     "status": "OUT_OF_STOCK",
-    "unknown_streak": 4
+    "unknown_streak": 5
   },
   "Target": {
     "alerted": true,
